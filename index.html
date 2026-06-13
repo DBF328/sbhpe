@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SBHPE 短網址管理</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--bd:#30363d;--fg:#e6edf3;--mut:#8b949e;--ac:#2f81f7;--ok:#238636}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Microsoft JhengHei",sans-serif;background:var(--bg);color:var(--fg);display:flex;justify-content:center;padding:28px 14px}
+  .wrap{width:100%;max-width:780px}
+  h1{font-size:20px;margin:0 0 4px}
+  p.sub{color:var(--mut);margin:0 0 20px;font-size:13px}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:18px;margin-bottom:16px}
+  label{display:block;font-size:13px;color:var(--mut);margin:10px 0 6px}
+  input{width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--bd);background:#0d1117;color:var(--fg);font-size:14px}
+  input:focus{outline:none;border-color:var(--ac)}
+  button{margin-top:16px;width:100%;padding:11px;border:0;border-radius:8px;background:var(--ok);color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+  button:hover{filter:brightness(1.1)}
+  button.mini{margin:0;width:auto;padding:5px 10px;font-size:12px;background:var(--ac);font-weight:500}
+  .next{font-size:13px;color:var(--mut);margin-top:6px}
+  .next b{color:var(--ac)}
+  .err{color:#f85149;font-size:13px;margin-top:8px;display:none}
+  .out{display:none;margin-top:14px;font-size:13px;color:var(--mut);line-height:1.6}
+  .out.show{display:block}
+  .out code{background:#0d1117;padding:2px 5px;border-radius:4px;border:1px solid var(--bd);color:var(--fg)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--bd);vertical-align:top;word-break:break-all}
+  th{color:var(--mut);font-weight:600;font-size:12px}
+  td a{color:var(--ac);text-decoration:none}
+  .hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .hd h2{font-size:15px;margin:0}
+  .ref{background:transparent;border:1px solid var(--bd);color:var(--fg);margin:0;width:auto;padding:5px 10px;font-size:12px;cursor:pointer;border-radius:6px}
+  .empty{color:var(--mut);font-size:13px;padding:10px 0}
+  .num{color:var(--ac);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>SBHPE 短網址管理</h1>
+  <p class="sub">GitHub Pages 託管 · 免密碼免 Token · 你已登入 GitHub 即可一鍵建立。基底：<code>dbf328.github.io/sbhpe/</code></p>
+
+  <div class="card">
+    <label>名稱（選填，方便辨識）</label>
+    <input id="name" placeholder="例：HPE刷刷">
+    <label>原始長網址</label>
+    <input id="target" placeholder="https://script.google.com/macros/s/..../exec">
+    <div class="next">下一個序號將是 <b id="nextcode">…</b>，短網址：<b id="nexturl">…</b></div>
+    <div class="err" id="err"></div>
+    <button onclick="gen()">產生短網址並前往 GitHub 建立</button>
+    <div class="out" id="out">
+      已開啟 GitHub 建檔分頁。確認後捲到底按綠色 <code>Commit changes</code> 即完成，約 1 分鐘生效。<br>
+      新短網址：<code id="shorturl"></code>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="hd">
+      <h2>已建立的短網址</h2>
+      <button class="ref" onclick="load(true)">重新整理</button>
+    </div>
+    <div id="listbox"><div class="empty">載入中…</div></div>
+  </div>
+
+  <p class="sub">新增流程：貼上原始網址 → 按「產生」→ 在 GitHub 分頁按 Commit。序號自動遞增（01、02、03…）。</p>
+</div>
+
+<script>
+var USER="DBF328", REPO="sbhpe", BASE="https://dbf328.github.io/"+REPO+"/";
+var CACHE_KEY="sbhpe_cache", cache={};
+try{cache=JSON.parse(localStorage.getItem(CACHE_KEY)||"{}")}catch(e){cache={}}
+var codes=[];
+
+function pad(n){return n<10?"0"+n:""+n;}
+function nextCode(){
+  var max=0;
+  codes.forEach(function(c){var n=parseInt(c,10);if(!isNaN(n)&&n>max)max=n;});
+  return pad(max+1);
+}
+function refreshNext(){
+  var nc=nextCode();
+  document.getElementById('nextcode').textContent=nc;
+  document.getElementById('nexturl').textContent=BASE+nc;
+}
+function metaParse(txt){
+  var m=txt.match(/<!--SBHPE\s+([\s\S]*?)-->/);
+  if(m){try{return JSON.parse(m[1]);}catch(e){}}
+  return null;
+}
+function render(){
+  var box=document.getElementById('listbox');
+  if(!codes.length){box.innerHTML='<div class="empty">尚無資料。新增第一筆吧！</div>';return;}
+  var rows=codes.slice().sort().map(function(c){
+    var d=cache[c]||{}, name=d.n||'(未命名)', url=d.u||'', s=BASE+c;
+    return '<tr><td class="num">'+c+'</td><td>'+esc(name)+'</td>'
+      +'<td><a href="'+esc(url)+'" target="_blank">'+esc(url||'—')+'</a></td>'
+      +'<td><a href="'+s+'" target="_blank">'+c+'</a> '
+      +'<button class="mini" onclick="cp(\''+s+'\')">複製</button></td></tr>';
+  }).join('');
+  box.innerHTML='<table><tr><th>序號</th><th>名稱</th><th>原始網址</th><th>短網址</th></tr>'+rows+'</table>';
+}
+function esc(s){return (s||'').replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+
+function load(force){
+  fetch('https://api.github.com/repos/'+USER+'/'+REPO+'/git/trees/main?recursive=1')
+    .then(function(r){return r.json();})
+    .then(function(j){
+      codes=[];
+      (j.tree||[]).forEach(function(t){
+        var m=t.path&&t.path.match(/^(\d+)\/index\.html$/);
+        if(m)codes.push(m[1]);
+      });
+      refreshNext(); render();
+      var need=codes.filter(function(c){return force||!cache[c];});
+      Promise.all(need.map(function(c){
+        return fetch(BASE+c+'/index.html?t='+Date.now()).then(function(r){return r.text();})
+          .then(function(txt){var d=metaParse(txt); if(d)cache[c]=d;})
+          .catch(function(){});
+      })).then(function(){
+        localStorage.setItem(CACHE_KEY,JSON.stringify(cache));
+        render();
+      });
+    })
+    .catch(function(){
+      document.getElementById('listbox').innerHTML='<div class="empty">無法讀取清單（repo 可能尚未建立或無網路）。</div>';
+      refreshNext();
+    });
+}
+
+function gen(){
+  var name=document.getElementById('name').value.trim();
+  var t=document.getElementById('target').value.trim();
+  var e=document.getElementById('err'); e.style.display='none';
+  if(!t){e.textContent='請輸入原始長網址';e.style.display='block';return;}
+  if(!/^https?:\/\//.test(t)){e.textContent='網址需以 http(s):// 開頭';e.style.display='block';return;}
+  var c=nextCode();
+  var meta=JSON.stringify({n:name,u:t});
+  var html='<!doctype html><meta charset=utf-8><title>Redirecting…</title>'
+    +'<meta http-equiv=refresh content="0;url='+t+'">'
+    +'<script>location.replace('+JSON.stringify(t)+')<\/script>'
+    +'<a href="'+t+'">前往</a>'
+    +'<!--SBHPE '+meta+'-->';
+  var ghUrl='https://github.com/'+USER+'/'+REPO+'/new/main?filename='
+    +encodeURIComponent(c+'/index.html')+'&value='+encodeURIComponent(html);
+  // optimistic cache so清單馬上看得到
+  cache[c]={n:name,u:t};
+  if(codes.indexOf(c)<0)codes.push(c);
+  localStorage.setItem(CACHE_KEY,JSON.stringify(cache));
+  render(); refreshNext();
+  document.getElementById('shorturl').textContent=BASE+c;
+  document.getElementById('out').classList.add('show');
+  document.getElementById('name').value=''; document.getElementById('target').value='';
+  window.open(ghUrl,'_blank');
+}
+function cp(s){navigator.clipboard.writeText(s);}
+load(false);
+</script>
+</body>
+</html>
